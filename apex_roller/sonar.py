@@ -91,14 +91,38 @@ class Sonar:
         value = max(0.0, min(1.0, float(value)))
         return self._with_reconnect(lambda: self._set_volume(channel, value, slider))
 
-    def _get_volume(self, channel: str, slider: Slider | None) -> float:
+    def get_muted(self, channel: str, slider: Slider | None = None) -> bool:
+        return self._with_reconnect(lambda: self._get_muted(channel, slider))
+
+    def set_muted(self, channel: str, muted: bool, slider: Slider | None = None) -> bool:
+        return self._with_reconnect(lambda: self._set_muted(channel, bool(muted), slider))
+
+    def _slider_node(self, channel: str, slider: Slider | None) -> dict:
         data = self.get_volumes()
         node = data["masters"] if channel == "master" else data["devices"][channel]
         if self.mode == "stream":
             if slider is None:
                 raise SonarError("slider is required in streamer mode")
-            return float(node["stream"][slider]["volume"])
-        return float(node["classic"]["volume"])
+            return node["stream"][slider]
+        return node["classic"]
+
+    def _get_volume(self, channel: str, slider: Slider | None) -> float:
+        return float(self._slider_node(channel, slider)["volume"])
+
+    def _get_muted(self, channel: str, slider: Slider | None) -> bool:
+        return bool(self._slider_node(channel, slider)["muted"])
+
+    def _set_muted(self, channel: str, muted: bool, slider: Slider | None) -> bool:
+        encoded = json.dumps(muted)
+        if self.mode == "stream":
+            if slider is None:
+                raise SonarError("slider is required in streamer mode")
+            url = f"{self.base_url}/volumeSettings/streamer/{slider}/{channel}/isMuted/{encoded}"
+        else:
+            url = f"{self.base_url}/volumeSettings/classic/{channel}/Mute/{encoded}"
+        r = requests.put(url, timeout=self.timeout)
+        r.raise_for_status()
+        return muted
 
     def _set_volume(self, channel: str, value: float, slider: Slider | None) -> float:
         encoded = json.dumps(value)

@@ -69,6 +69,7 @@ class MediaHook:
         on_volume_up: Callable[[], None] | None = None,
         on_volume_down: Callable[[], None] | None = None,
         on_media_button: Callable[[], None] | None = None,
+        on_mute_button: Callable[[], None] | None = None,
         *,
         suppress: bool = True,
         injected_only: bool = True,
@@ -76,6 +77,7 @@ class MediaHook:
         self._cb_up = on_volume_up
         self._cb_down = on_volume_down
         self._cb_media = on_media_button
+        self._cb_mute = on_mute_button
         self.suppress = suppress
         self.injected_only = injected_only
         self.paused = False
@@ -94,6 +96,7 @@ class MediaHook:
             "vol_up": self._cb_up,
             "vol_down": self._cb_down,
             "media": self._cb_media,
+            "mute": self._cb_mute,
         }
         while not self._worker_stop.is_set():
             try:
@@ -130,6 +133,9 @@ class MediaHook:
                 handled = True
             elif vk == VK_MEDIA_PLAY_PAUSE and self._cb_media is not None:
                 self._actions.put("media")
+                handled = True
+            elif vk == VK_VOLUME_MUTE and self._cb_mute is not None:
+                self._actions.put("mute")
                 handled = True
             if handled and self.suppress:
                 return 1

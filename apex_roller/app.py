@@ -1,9 +1,13 @@
 """Orchestrator: wires the hook to Sonar (state) and GameSense (OLED).
 
-Cycle order:
-  classic mode  : Master, Game, Chat, Media, Aux
-  streamer mode : each of the above twice, monitoring then streaming
-                  (Master Monitor, Master Stream, Game Monitor, Game Stream, ...)
+Cycle order (Master only with config.include_master):
+  classic mode  : [Master,] Game, Chat, Media, Aux
+  streamer mode : the same channels' monitoring sliders; with
+                  config.include_streaming each channel takes two positions,
+                  monitoring then streaming (Game Monitor, Game Stream, ...)
+
+Buttons: roller turn = volume, media button = next position (and pop Sonar's
+on-screen overlay for it), roller press = mute toggle for the position.
 """
 from __future__ import annotations
 
@@ -15,7 +19,7 @@ from typing import Callable
 from .config import Config
 from .coreprops import load as load_core_props
 from .gamesense import GameSense
-from .gg_ws import STREAMER_ACTIONS, GGEventClient
+from .gg_ws import STREAMER_ACTIONS, STREAMER_MUTE_ACTIONS, GGEventClient
 from .hook import MediaHook
 from .sonar import Slider, Sonar
 
@@ -34,6 +38,17 @@ OLED_RELEASE_AFTER_S = 3.0  # release the OLED back to the default view after N 
 # Bar width tuned so line 2 stays under ~15 chars total (the Apex Pro OLED
 # clips beyond that with the default GameSense font): "[========] 100%" = 15.
 BAR_WIDTH = 8
+
+
+def format_level(volume: float, *, muted: bool) -> str:
+    """OLED line 2: "[=====---]  67%", or "[ MUTED  ]  67%" (same width)."""
+    pct = int(round(volume * 100))
+    if muted:
+        inner = "MUTED".center(BAR_WIDTH)
+    else:
+        filled = max(0, min(BAR_WIDTH, round(volume * BAR_WIDTH)))
+        inner = ("=" * filled) + ("-" * (BAR_WIDTH - filled))
+    return f"[{inner}] {pct:>3d}%"
 
 
 @dataclass(frozen=True)
@@ -57,19 +72,24 @@ def build_positions(mode: str, *, include_master: bool, include_streaming: bool)
 
 
 class App:
-    def __init__(self) -> None:
+    def __init__(self, *, config: Config | None = None, sonar: Sonar | None = None,
+                 gs: GameSense | None = None, gg_ws: GGEventClient | None = None) -> None:
+        """Clients default to the real local services; tests inject fakes."""
         self._lock = threading.Lock()
-        self.config = Config.load()
+        self.config = config if config is not None else Config.load()
 
-        props = load_core_props()
-        self.sonar = Sonar(props.gg_encrypted_address)
-        self.gs = GameSense(props.gamesense_address)
-        self.gs.register()
+        props = load_core_props() if None in (sonar, gs, gg_ws) else None
+        self.sonar = sonar if sonar is not None else Sonar(props.gg_encrypted_address)
+        if gs is None:
+            gs = GameSense(props.gamesense_address)
+            gs.register()
+        self.gs = gs
         # Deliberately NOT starting heartbeat: we want GameSense to release the
         # OLED back to its default view shortly after we stop sending events.
-        # GG /eventing client used to make the Sonar UI sliders update live.
+        # GG /eventing client used to make the Sonar UI sliders update live
+        # and to pop Sonar's on-screen overlay.
         # Live UI sync currently only wired up for streamer-mode actions.
-        self.gg_ws = GGEventClient(props.gg_encrypted_address)
+        self.gg_ws = gg_ws if gg_ws is not None else GGEventClient(props.gg_encrypted_address)
         self._release_timer: threading.Timer | None = None
 
         self.positions = build_positions(
@@ -79,6 +99,7 @@ class App:
         )
         self.idx = 0
         self.volume = self._read_current()
+        self.muted = self._read_muted()
         self._push_oled()
 
         self.on_state_change: Callable[[], None] | None = None
@@ -87,6 +108,7 @@ class App:
             on_volume_up=self._on_volume_up,
             on_volume_down=self._on_volume_down,
             on_media_button=self._on_media_button,
+            on_mute_button=self._on_mute_button,
             suppress=True,
         )
 
@@ -127,6 +149,7 @@ class App:
                             break
             self.idx = new_idx
             self.volume = self._read_current()
+            self.muted = self._read_muted()
         self._push_oled()
         self._notify()
         log.info("config updated: %s; cycle now %d positions starting at %s",
@@ -147,6 +170,23 @@ class App:
         with self._lock:
             self.idx = (self.idx + 1) % len(self.positions)
             self.volume = self._read_current()
+            self.muted = self._read_muted()
+            # Re-send the unchanged value: Sonar's action handler shows its
+            # on-screen overlay for that slider on every set, changed or not.
+            self._send_ui_action(STREAMER_ACTIONS, self.volume * 100.0)
+        self._push_oled()
+        self._notify()
+
+    def _on_mute_button(self) -> None:
+        with self._lock:
+            p = self.position
+            self.muted = not self.muted
+            log.info("%s %s", p.label, "muted" if self.muted else "unmuted")
+            try:
+                self.sonar.set_muted(p.channel, self.muted, p.slider)
+            except Exception:
+                log.exception("set mute failed for %s", p.label)
+            self._send_ui_action(STREAMER_MUTE_ACTIONS, self.muted)
         self._push_oled()
         self._notify()
 
@@ -163,6 +203,24 @@ class App:
             log.exception("read volume failed for %s", p.label)
             return 0.0
 
+    def _read_muted(self) -> bool:
+        p = self.position
+        try:
+            return self.sonar.get_muted(p.channel, p.slider)
+        except Exception:
+            log.exception("read mute failed for %s", p.label)
+            return False
+
+    def _send_ui_action(self, actions: dict[tuple[str, str], str], value: float | bool) -> None:
+        """Push a value through Sonar's action path so the GG UI redraws and the
+        overlay pops. Streamer mode only (no classic action names exist)."""
+        p = self.position
+        if p.slider is None:
+            return
+        action = actions.get((p.slider, p.channel))
+        if action is not None:
+            self.gg_ws.send_action(action, value)
+
     def _apply(self) -> None:
         p = self.position
         try:
@@ -170,10 +228,7 @@ class App:
         except Exception:
             log.exception("set volume failed for %s", p.label)
         # Nudge the Sonar GG UI to redraw the slider live (streamer mode only).
-        if p.slider is not None:
-            action = STREAMER_ACTIONS.get((p.slider, p.channel))
-            if action is not None:
-                self.gg_ws.send_action(action, self.volume * 100.0)
+        self._send_ui_action(STREAMER_ACTIONS, self.volume * 100.0)
         self._push_oled()
         self._notify()
 
@@ -187,11 +242,7 @@ class App:
         self._schedule_oled_release()
 
     def _push_oled(self) -> None:
-        pct = int(round(self.volume * 100))
-        filled = max(0, min(BAR_WIDTH, round(self.volume * BAR_WIDTH)))
-        bar = ("=" * filled) + ("-" * (BAR_WIDTH - filled))
-        line2 = f"[{bar}] {pct:>3d}%"
-        self.show_status(self.position.label, line2)
+        self.show_status(self.position.label, format_level(self.volume, muted=self.muted))
 
     def _schedule_oled_release(self) -> None:
         """Restart the timer that releases the OLED back to default view."""

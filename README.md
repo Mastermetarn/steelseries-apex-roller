@@ -41,8 +41,14 @@ This app sits between the keyboard and Windows:
     (monitoring first, then streaming), so you can dial in the broadcast
     feed independently of what you hear locally.
   Both off by default; choices persist across launches.
+  Each press also pops **Sonar's on-screen overlay** for the newly selected
+  channel, so you can see what the roller is about to control.
 - **Roller up/down** adjusts the active channel's volume.
-- **OLED** on the keyboard shows the active channel and current level.
+- **Roller press** mutes / unmutes the active channel (only that slider —
+  in Streamer mode, monitoring and streaming mute independently). Rolling
+  while muted changes the level but leaves the channel muted.
+- **OLED** on the keyboard shows the active channel and current level
+  (or `MUTED`).
 - **Sonar GG UI sliders move live**, in real time, exactly as if you were
   dragging them with the mouse.
 - The original Windows-master behaviour is preserved on any *other*
@@ -75,7 +81,7 @@ Per-user config and logs live in `%LocalAppData%\ApexRoller\`.
 ## Tray menu
 
 - **Pause** — temporarily passes roller/media events through to Windows
-  (master volume + media play/pause behave normally).
+  (master volume, mute and media play/pause behave normally).
 - **Include Master channel** — adds Sonar's Master entry to the cycle.
   Off by default.
 - **Include Streaming sliders** — each channel becomes two cycle positions
@@ -115,8 +121,9 @@ The OLED display uses the SteelSeries
   internal `VolumeActionProvider` only exposes the mic-mute action as a
   typed action; the other classic-mode volumes don't have an
   `EVENT_SUB_APP_ACTIONS_DATA_CHANGED` action name we can target. Audio
-  and OLED still work in Classic mode — only the GG UI sliders won't
-  update live. Run Sonar in Streamer mode for the full experience.
+  and OLED still work in Classic mode (including roller-press mute) — only
+  the GG UI sliders won't update live and Sonar's on-screen overlay won't
+  pop. Run Sonar in Streamer mode for the full experience.
 - **No auto-update yet.** Check Releases for new versions manually.
 - **Sonar API is community-documented, not officially supported by
   SteelSeries.** It could change in a future GG release. The app re-reads
@@ -137,6 +144,10 @@ python -m apex_roller --no-tray
 
 # Tray run
 python -m apex_roller --tray
+
+# Run the unit tests
+pip install -r requirements-dev.txt
+python -m pytest
 
 # Build the redistributable .exe
 python build.py

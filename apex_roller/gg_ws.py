@@ -46,6 +46,20 @@ STREAMER_ACTIONS: dict[tuple[str, str], str] = {
     ("streaming",  "aux"):        "STREAMING_AUX_VOLUME",
 }
 
+# Toggle actions; value is a JSON bool. Same (slider, channel_key) indexing.
+STREAMER_MUTE_ACTIONS: dict[tuple[str, str], str] = {
+    ("monitoring", "master"):     "MONITOR_MASTER_MUTE",
+    ("streaming",  "master"):     "STREAMING_MASTER_MUTE",
+    ("monitoring", "game"):       "MONITOR_GAME_MUTE",
+    ("streaming",  "game"):       "STREAMING_GAME_MUTE",
+    ("monitoring", "chatRender"): "MONITOR_CHAT_MUTE",
+    ("streaming",  "chatRender"): "STREAMING_CHAT_MUTE",
+    ("monitoring", "media"):      "MONITOR_MEDIA_MUTE",
+    ("streaming",  "media"):      "STREAMING_MEDIA_MUTE",
+    ("monitoring", "aux"):        "MONITOR_AUX_MUTE",
+    ("streaming",  "aux"):        "STREAMING_AUX_MUTE",
+}
+
 # Classic-mode VolumeActionProvider only exposes MIC_MUTE as a typed action, so
 # we don't have a direct UI-sync action for classic master/game/etc. Live UI
 # sync in classic mode would need a different path; out of scope for v0.1.
@@ -71,15 +85,17 @@ class GGEventClient:
         self._ws = ws
         log.info("connected to GG eventing socket: %s", self._url)
 
-    def send_action(self, action_name: str, value_pct: float) -> None:
-        """Fire an EVENT_SUB_APP_ACTIONS_DATA_CHANGED event. `value_pct` is 0..100."""
+    def send_action(self, action_name: str, value: float | bool) -> None:
+        """Fire an EVENT_SUB_APP_ACTIONS_DATA_CHANGED event. `value` is a 0..100
+        percentage for FiniteRange (volume) actions, a bool for Toggle (mute)
+        actions -- Sonar casts Toggle values straight to bool."""
         msg = {
             "event": EVENT_NAME,
             "data": {
                 "SubAppName": SUB_APP_NAME,
                 "Id": str(uuid.UUID(int=0)),  # handler looks up by ActionName, Id is unused
                 "ActionName": action_name,
-                "Value": float(value_pct),
+                "Value": value if isinstance(value, bool) else float(value),
             },
         }
         payload = json.dumps(msg)

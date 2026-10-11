@@ -6,6 +6,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-11
+
+### Added
+- **Roller press mutes / unmutes the active channel.** Uses Sonar's own
+  mute flag, so unmuting restores the previous level. In Streamer mode it
+  mutes only the selected slider (monitoring and streaming stay
+  independent), and the GG UI + Sonar overlay reflect the change live.
+  Rolling while muted adjusts the level without unmuting. The OLED shows
+  `[ MUTED  ]  50%` for a muted channel.
+- **Media button pops Sonar's on-screen overlay** for the newly selected
+  channel on every cycle step (Streamer mode).
+- Unit tests (`tests/`, run with `python -m pytest`; dev deps in
+  `requirements-dev.txt`).
+
 ## [0.1.3] - 2026-05-20
 
 ### Added
@@ -87,6 +101,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the GG sliders only redraw next time you click into the panel.
 - No code signing yet — first run may show a Windows SmartScreen warning.
 
+[0.1.4]: https://github.com/StableFlux/steelseries-apex-roller/releases/tag/v0.1.4
 [0.1.3]: https://github.com/StableFlux/steelseries-apex-roller/releases/tag/v0.1.3
 [0.1.2]: https://github.com/StableFlux/steelseries-apex-roller/releases/tag/v0.1.2
 [0.1.1]: https://github.com/StableFlux/steelseries-apex-roller/releases/tag/v0.1.1

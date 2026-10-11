@@ -1,4 +1,4 @@
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 RELEASES_URL = "https://github.com/StableFlux/steelseries-apex-roller/releases/latest"
 PROJECT_URL = "https://github.com/StableFlux/steelseries-apex-roller"
